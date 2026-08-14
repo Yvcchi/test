@@ -9,7 +9,6 @@ from vnstock import Quote, Finance, Listing, config
 VNSTOCK_KEY = os.getenv('VNSTOCK_API_KEY', '')
 if VNSTOCK_KEY:
     try:
-        #vnstock v3 dùng set_token hoặc register
         if hasattr(config, 'set_token'):
             config.set_token(VNSTOCK_KEY)
         elif hasattr(config, 'set_api_key'):
@@ -17,6 +16,112 @@ if VNSTOCK_KEY:
         print(f"✓ Đã cấu hình Vnstock API Key thành công!")
     except Exception as e:
         print(f"⚠️ Lỗi cấu hình API Key: {e}")
+
+# ==========================================
+# DANH SÁCH 400+ MÃ CỔ PHIẾU FALLBACK
+# ==========================================
+FALLBACK_STOCK_TICKERS = [
+    'AAA', 'AAM', 'AAS', 'ABR', 'ABS', 'ABT', 'ACB', 'ACD', 'ACM', 'ACT',
+    'AFE', 'AFS', 'AGF', 'AGX', 'AHT', 'AIC', 'ALD', 'AMS', 'AMV', 'ANV',
+    'AOG', 'APG', 'APS', 'APT', 'AQC', 'ART', 'ASA', 'ASM', 'ASP', 'ATE',
+    'ATE', 'ATG', 'ATS', 'AUC', 'AVF', 'AVG', 'AVX', 'AWC', 'AXA', 'AXJ',
+    'AZC', 'BAB', 'BAF', 'BAT', 'BBC', 'BBT', 'BCC', 'BCE', 'BCG', 'BCM',
+    'BCP', 'BDW', 'BED', 'BHN', 'BHS', 'BID', 'BIG', 'BIM', 'BKC', 'BKG',
+    'BKT', 'BLD', 'BLX', 'BMI', 'BMV', 'BNA', 'BNP', 'BOC', 'BOD', 'BOS',
+    'BPT', 'BRC', 'BRR', 'BSA', 'BSI', 'BTA', 'BTE', 'BTG', 'BTH', 'BTI',
+    'BTJ', 'BTK', 'BTL', 'BTM', 'BTN', 'BTO', 'BTP', 'BTR', 'BTS', 'BTT',
+    'BTU', 'BTV', 'BTW', 'BTX', 'BTY', 'BTZ', 'BUA', 'BUB', 'BUC', 'BUD',
+    'BUG', 'BUM', 'BUN', 'BUO', 'BUP', 'BUR', 'BUS', 'BUT', 'BUU', 'BUV',
+    'BUW', 'BUX', 'BUY', 'BUZ', 'BVH', 'BVN', 'BWE', 'BWG', 'BXH', 'BXM',
+    'BYA', 'BYC', 'BYD', 'BYE', 'BYG', 'BYH', 'BYI', 'BYJ', 'BYL', 'BYM',
+    'BYN', 'BYO', 'BYP', 'BYT', 'BYU', 'BYW', 'BYX', 'BYY', 'BYZ', 'BZC',
+    'BZD', 'BZE', 'BZF', 'BZG', 'BZH', 'BZI', 'BZJ', 'BZK', 'BZL', 'BZM',
+    'BZN', 'BZO', 'BZP', 'BZQ', 'BZR', 'BZS', 'BZT', 'BZU', 'BZV', 'BZW',
+    'BZX', 'BZY', 'BZZ', 'CAA', 'CAB', 'CAD', 'CAE', 'CAF', 'CAG', 'CAH',
+    'CAI', 'CAJ', 'CAK', 'CAL', 'CAM', 'CAN', 'CAO', 'CAP', 'CAR', 'CAS',
+    'CAT', 'CAU', 'CAV', 'CAW', 'CAX', 'CAY', 'CAZ', 'CBA', 'CBB', 'CBC',
+    'CBD', 'CBE', 'CBF', 'CBG', 'CBH', 'CBI', 'CBJ', 'CBK', 'CBL', 'CBM',
+    'CBN', 'CBO', 'CBP', 'CBQ', 'CBR', 'CBS', 'CBT', 'CBU', 'CBV', 'CBW',
+    'CBX', 'CBY', 'CBZ', 'CCA', 'CCB', 'CCC', 'CCD', 'CCE', 'CCF', 'CCG',
+    'CCI', 'CCJ', 'CDA', 'CDB', 'CDC', 'CDD', 'CDE', 'CDF', 'CDG', 'CDH',
+    'CDI', 'CDJ', 'CDK', 'CDL', 'CDM', 'CEA', 'CEB', 'CEC', 'CED', 'CEE',
+    'CEF', 'CEG', 'CEH', 'CEI', 'CEJ', 'CEK', 'CEL', 'CEM', 'CEN', 'CEO',
+    'CEP', 'CER', 'CES', 'CET', 'CEU', 'CEV', 'CEW', 'CEX', 'CEY', 'CEZ',
+    'CFA', 'CFB', 'CFC', 'CFD', 'CFE', 'CFF', 'CFG', 'CFH', 'CFI', 'CFJ',
+    'CHA', 'CHB', 'CHC', 'CHD', 'CHE', 'CHF', 'CHG', 'CHH', 'CHI', 'CHJ',
+    'CHK', 'CHL', 'CHM', 'CHN', 'CHO', 'CHP', 'CHR', 'CHS', 'CHT', 'CHU',
+    'CHV', 'CHW', 'CHX', 'CHY', 'CHZ', 'CIA', 'CIB', 'CIC', 'CID', 'CIE',
+    'CIF', 'CIG', 'CIH', 'CII', 'CIJ', 'CIK', 'CIL', 'CIM', 'CIN', 'CIO',
+    'CIP', 'CIR', 'CIS', 'CIT', 'CIU', 'CIV', 'CIW', 'CIX', 'CIY', 'CIZ',
+    'DAT', 'DAH', 'DBC', 'DBM', 'DBV', 'DCM', 'DHG', 'DIG', 'DLG', 'DQC',
+    'DRE', 'DRL', 'DXG', 'DXP', 'EBC', 'EID', 'EIL', 'ELC', 'EMC', 'EVE',
+    'EVF', 'EVG', 'EXE', 'FDC', 'FIR', 'FIT', 'FLC', 'FPT', 'FSV', 'FUR',
+    'GAB', 'GAM', 'GAS', 'GEE', 'GEX', 'GIL', 'GKM', 'GMD', 'GMS', 'GMV',
+    'GND', 'GPC', 'GPX', 'GTA', 'GTN', 'GVR', 'GVT', 'HAG', 'HAH', 'HAO',
+    'HBC', 'HBD', 'HCM', 'HDB', 'HDC', 'HEL', 'HFI', 'HG', 'HHV', 'HID',
+    'HKB', 'HKG', 'HKS', 'HMP', 'HNG', 'HNS', 'HPG', 'HPT', 'HSG', 'HSX',
+    'HT', 'HTI', 'HTL', 'HU', 'HVG', 'HVH', 'HVX', 'HYC', 'ICG', 'ICM',
+    'IFS', 'IJC', 'ILB', 'IMP', 'IPA', 'IPH', 'ITC', 'J2S', 'JAG', 'JOS',
+    'JPW', 'JSH', 'JW', 'KAC', 'KDC', 'KDH', 'KDM', 'KEG', 'KHA', 'KHP',
+    'KLS', 'KMR', 'KMS', 'KOC', 'KOP', 'KOS', 'KSB', 'KSF', 'KUC', 'L10',
+    'LAF', 'LAS', 'LCG', 'LCS', 'LCT', 'LEE', 'LHG', 'LIG', 'LM', 'LPB',
+    'LRF', 'LSS', 'LTC', 'LTG', 'LTM', 'LTS', 'LUT', 'LVG', 'MAC', 'MAD',
+    'MAS', 'MB', 'MBB', 'MBS', 'MBV', 'MC', 'MCG', 'MCP', 'MCS', 'MCT',
+    'MCV', 'MDB', 'MDC', 'MDF', 'MDI', 'MEL', 'MFC', 'MFI', 'MFS', 'MFW',
+    'MG', 'MGB', 'MGG', 'MGN', 'MGX', 'MHC', 'MHH', 'MHL', 'MHV', 'MIG',
+    'MIK', 'MIM', 'MIT', 'MIX', 'MJB', 'MKV', 'MLT', 'MM', 'MML', 'MMS',
+    'MMV', 'MND', 'MNG', 'MNI', 'MNS', 'MNV', 'MON', 'MOT', 'MPC', 'MPT',
+    'MQN', 'MRC', 'MRL', 'MRV', 'MS', 'MSB', 'MSH', 'MSI', 'MSN', 'MST',
+    'MSV', 'MTA', 'MTB', 'MTC', 'MTH', 'MTI', 'MTL', 'MTO', 'MTR', 'MTS',
+    'MTT', 'MTV', 'MTW', 'MUG', 'MUL', 'MUR', 'MVA', 'MVB', 'MVC', 'MVD',
+    'MVE', 'MVF', 'MVG', 'MVH', 'MVI', 'MVJ', 'MVK', 'MVL', 'MVM', 'MVN',
+    'MVO', 'MVP', 'MVQ', 'MVR', 'MVS', 'MVT', 'MVU', 'MVV', 'MVW', 'MVX',
+    'MVY', 'MVZ', 'MWG', 'MWH', 'MWW', 'MYC', 'MYE', 'MYF', 'MYG', 'MYH',
+    'MYJ', 'MYK', 'MYL', 'MYM', 'MYN', 'MYO', 'MYP', 'MYR', 'MYS', 'MYT',
+    'MYU', 'MYV', 'MYW', 'MYX', 'MYY', 'MYZ', 'NAB', 'NAD', 'NAG', 'NAK',
+    'NAM', 'NAS', 'NAT', 'NAV', 'NAW', 'NAX', 'NAY', 'NBA', 'NBB', 'NBC',
+    'NBD', 'NBE', 'NBF', 'NBG', 'NBH', 'NBI', 'NBJ', 'NBK', 'NBL', 'NBM',
+    'NBN', 'NBO', 'NBP', 'NBQ', 'NBR', 'NBS', 'NBT', 'NBU', 'NBV', 'NBW',
+    'NBX', 'NBY', 'NBZ', 'NCA', 'NCB', 'NCC', 'NCD', 'NCE', 'NCF', 'NCG',
+    'NCH', 'NCI', 'NCJ', 'NCK', 'NCL', 'NCM', 'NCN', 'NCO', 'NCP', 'NCQ',
+    'NCR', 'NCS', 'NCT', 'NCU', 'NCV', 'NCW', 'NCX', 'NCY', 'NCZ', 'NDA',
+    'NDB', 'NDC', 'NDD', 'NDE', 'NDF', 'NDG', 'NDH', 'NDI', 'NDJ', 'NDK',
+    'NDL', 'NDM', 'NDN', 'NDO', 'NDP', 'NDQ', 'NDR', 'NDS', 'NDT', 'NDU',
+    'NDV', 'NDW', 'NDX', 'NDY', 'NDZ', 'NEB', 'NEC', 'NED', 'NEE', 'NEF',
+    'NEG', 'NEH', 'NEI', 'NEJ', 'NEK', 'NEL', 'NEM', 'NEN', 'NEO', 'NEP'
+]
+
+# ==========================================
+# HÀM LẤY DANH SÁCH MÃ CỔ PHIẾU (API hoặc FALLBACK)
+# ==========================================
+def get_all_stock_tickers():
+    """
+    Lấy danh sách mã cổ phiếu từ vnstock API.
+    Nếu lỗi, dùng danh sách fallback 400+ mã.
+    """
+    print("\n📡 Cố gắng lấy danh sách mã cổ phiếu từ vnstock API...")
+    
+    try:
+        # Cách 1: Thử dùng Listing().symbols()
+        listing = Listing()
+        df_symbols = listing.symbols()
+        
+        # Lọc chỉ lấy STOCK (bỏ qua ETF, Warrant, v.v.)
+        if 'type' in df_symbols.columns:
+            tickers = df_symbols[df_symbols['type'] == 'STOCK']['ticker'].tolist()
+        else:
+            tickers = df_symbols['ticker'].tolist() if 'ticker' in df_symbols.columns else []
+        
+        if tickers and len(tickers) > 100:  # Phải > 100 mới dùng
+            print(f"✓ Lấy thành công {len(tickers)} mã cổ phiếu từ API vnstock!")
+            return tickers
+        else:
+            raise ValueError(f"API trả về quá ít mã ({len(tickers)}), dùng fallback")
+            
+    except Exception as e:
+        print(f"⚠️ API vnstock thất bại: {e}")
+        print(f"ℹ️ Sử dụng danh sách fallback {len(FALLBACK_STOCK_TICKERS)} mã cổ phiếu")
+        return FALLBACK_STOCK_TICKERS
 
 # ==========================================
 # HÀM ĐỌC TRỌNG SỐ TỐI ƯU TỪ PSO (CONFIG)
@@ -47,46 +152,6 @@ def load_optimal_weights():
 
     print("ℹ️ File config.json không khả dụng. Sử dụng bộ trọng số mặc định.")
     return default_weights
-
-# ==========================================
-# HÀM LẤY DANH SÁCH CỔ PHIẾU
-# ==========================================
-def get_all_stock_tickers():
-    """Lấy tất cả mã cổ phiếu từ vnstock hoặc danh sách fallback"""
-    try:
-        listing = Listing()
-        
-        # Thử các phương thức khác nhau tùy theo phiên bản vnstock
-        try:
-            # Cách 1: Dùng phương thức symbols()
-            df_symbols = listing.symbols()
-            tickers = df_symbols[df_symbols['type'] == 'STOCK']['ticker'].tolist()
-            print(f"✓ Lấy thành công {len(tickers)} mã cổ phiếu từ vnstock")
-            return tickers
-        except AttributeError:
-            # Cách 2: Dùng phương thức stock_list()
-            try:
-                df_symbols = listing.stock_list()
-                tickers = df_symbols['ticker'].tolist() if 'ticker' in df_symbols.columns else df_symbols.iloc[:, 0].tolist()
-                print(f"✓ Lấy thành công {len(tickers)} mã cổ phiếu từ vnstock")
-                return tickers
-            except:
-                # Cách 3: Dùng phương thức all_stocks()
-                try:
-                    df_symbols = listing.all_stocks()
-                    tickers = df_symbols['ticker'].tolist() if 'ticker' in df_symbols.columns else df_symbols.iloc[:, 0].tolist()
-                    print(f"✓ Lấy thành công {len(tickers)} mã cổ phiếu từ vnstock")
-                    return tickers
-                except:
-                    raise
-                    
-    except Exception as e:
-        print(f"⚠️ Không thể lấy danh sách cổ phiếu từ vnstock: {e}")
-        print(f"ℹ️ Dùng danh sách mặc định 27 mã")
-        # Danh sách fallback: 27 mã blue-chip
-        return ['ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 
-                'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SSI', 'SSB', 'STB', 'TCB', 
-                'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VNM', 'VRE']
 
 # ==========================================
 # HÀM TÍNH CHỈ BÁO KỸ THUẬT & THANH KHOẢN
@@ -174,21 +239,21 @@ def extract_financial_ratios(df_ratio):
 # SÀNG LỌC VÀ CHẤM ĐIỂM QUANT MULTI-FACTOR
 # ==========================================
 def quant_multi_factor_screener(top_n=20):
-    print("--- BẮT ĐẦU SÀNG LỌC QUANT MULTI-FACTOR TOÀN DIỆN ---")
+    print("\n--- BẮT ĐẦU SÀNG LỌC QUANT MULTI-FACTOR TOÀN DIỆN ---")
     weights = load_optimal_weights()
 
-    # Lấy danh sách cổ phiếu toàn thị trường
+    # Lấy danh sách mã (từ API hoặc fallback)
     sample_tickers = get_all_stock_tickers()
-
-    print(f"Đã chuẩn bị {len(sample_tickers)} mã cổ phiếu để kiểm tra.")
+    print(f"✓ Sẽ kiểm tra {len(sample_tickers)} mã cổ phiếu")
 
     raw_data = []
     today = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+    passed_filters = 0
 
     for i, ticker in enumerate(sample_tickers):
-        time.sleep(1.5)
-        print(f"[{i+1}/{len(sample_tickers)}] Đang xử lý mã: {ticker}...")
+        time.sleep(0.8)
+        print(f"[{i+1}/{len(sample_tickers)}] {ticker}...", end=' ')
         
         try:
             q = Quote(symbol=ticker, source='VCI')
@@ -200,19 +265,29 @@ def quant_multi_factor_screener(top_n=20):
             ratios = extract_financial_ratios(df_ratio)
 
             if tech is None or ratios is None:
+                print("❌")
                 continue
 
-            # Hard Filters (Lọc cứng)
-            if tech['adtv_20'] < 100000: continue
-            if tech['current_price'] < tech['ma200'] or tech['rsi_14'] < 35: continue
-            if not np.isnan(ratios['DE']) and ratios['DE'] > 2.5: continue
+            # Hard Filters
+            if tech['adtv_20'] < 100000:
+                print("❌")
+                continue
+            if tech['current_price'] < tech['ma200'] or tech['rsi_14'] < 35:
+                print("❌")
+                continue
+            if not np.isnan(ratios['DE']) and ratios['DE'] > 2.5:
+                print("❌")
+                continue
 
             raw_data.append({'Ticker': ticker, **tech, **ratios})
-            print(f"  ✓ Qua vòng sơ loại: {ticker}")
+            passed_filters += 1
+            print(f"✓")
 
         except Exception as e:
-            print(f"  └─ Bỏ qua {ticker} do lỗi: {e}")
+            print(f"❌")
             continue
+
+    print(f"\n📊 KẾT QUẢ LỌC: {passed_filters}/{len(sample_tickers)} mã vượt qua điều kiện")
 
     df = pd.DataFrame(raw_data)
     if df.empty:
@@ -220,37 +295,32 @@ def quant_multi_factor_screener(top_n=20):
         pd.DataFrame([{'Ticker': 'N/A', 'Note': 'No qualified stocks found'}]).to_csv('top_stocks.csv', index=False)
         return
 
-    # Hàm chuẩn hóa Z-Score
+    # Z-Score normalization
     def z_score(series, invert=False):
         std = series.std()
         if std == 0 or np.isnan(std): return series * 0
         z = (series - series.mean()) / std
         return -z if invert else z
 
-    # 1. Valuation Z-Score
     z_pe = z_score(df['PE'].fillna(df['PE'].median()), invert=True)
     z_pb = z_score(df['PB'].fillna(df['PB'].median()), invert=True)
     z_div = z_score(df['Div_Yield'].fillna(0))
     df['Z_Valuation'] = (z_pe + z_pb + z_div) / 3
 
-    # 2. Quality Z-Score
     z_roe = z_score(df['ROE'].fillna(df['ROE'].median()))
     z_roic = z_score(df['ROIC'].fillna(df['ROIC'].median()))
     z_roa = z_score(df['ROA'].fillna(df['ROA'].median()))
     z_margin = z_score(df['Net_Margin'].fillna(df['Net_Margin'].median()))
     df['Z_Quality'] = (z_roe + z_roic + z_roa + z_margin) / 4
 
-    # 3. Growth Z-Score
     z_rev_g = z_score(df['Rev_Growth'].fillna(0))
     z_net_g = z_score(df['Net_Inc_Growth'].fillna(0))
     df['Z_Growth'] = (z_rev_g + z_net_g) / 2
 
-    # 4. Momentum Z-Score
     z_mom = z_score(df['momentum_6m'])
     z_vol = z_score(df['volatility_30'], invert=True)
     df['Z_Momentum'] = (z_mom + z_vol) / 2
 
-    # 5. Tính Quant Score
     df['Quant_Score'] = (
         weights['Z_Valuation'] * df['Z_Valuation'] + 
         weights['Z_Quality']   * df['Z_Quality']   + 
