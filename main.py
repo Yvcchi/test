@@ -54,13 +54,12 @@ def calculate_technical_indicators(df_price):
 # HÀM LẤY VÀ XỬ LÝ BCTC
 # ==========================================
 def extract_financial_ratios(df_ratio):
-    """Trích xuất 13 chỉ số tài chính từ dataframe BCTC của vnstock"""
+    """Trích xuất các chỉ số tài chính từ dataframe BCTC của vnstock"""
     if df_ratio is None or df_ratio.empty:
         return None
 
     row = df_ratio.iloc[0]
     
-    # Hàm đọc chỉ số an toàn theo danh sách tên cột có thể xuất hiện
     def get_val(keys, default=np.nan):
         for k in keys:
             for col in df_ratio.columns:
@@ -82,7 +81,7 @@ def extract_financial_ratios(df_ratio):
     de = get_val(['debtToEquity', 'd/e', 'no_vcshe'])
     gross_margin = get_val(['grossMargin', 'bien_loi_nhuan_gop'])
     net_margin = get_val(['netMargin', 'bien_loi_nhuan_rong'])
-    ocf_ni = get_val(['ocf/ni', 'cash_flow_quality'], default=1.0) # Dòng tiền OCF / NI
+    ocf_ni = get_val(['ocf/ni', 'cash_flow_quality'], default=1.0)
 
     rev_growth = get_val(['revenueGrowth', 'tang_truong_doanh_thu'])
     net_inc_growth = get_val(['netIncomeGrowth', 'tang_truong_loi_nhuan'])
@@ -101,16 +100,45 @@ def extract_financial_ratios(df_ratio):
 def quant_multi_factor_screener(top_n=10):
     print("--- BẮT ĐẦU SÀNG LỌC QUANT MULTI-FACTOR TOÀN DIỆN (13 TIÊU CHÍ) ---")
     
-    mkt = Market()
-    df_symbols = mkt.listing_symbols()
-    hose_tickers = df_symbols[df_symbols['organ_code'] == 'HOSE']['ticker'].tolist() if 'organ_code' in df_symbols.columns else df_symbols['ticker'].tolist()
-    
-    # Giới hạn lấy danh sách mẫu 30 mã lớn trên HOSE để đảm bảo thời gian chạy demo công khai
+    # Lấy danh sách cổ phiếu HOSE an toàn với mọi phiên bản vnstock
+    hose_tickers = []
+    try:
+        from vnstock import listing_companies
+        df_symbols = listing_companies()
+        if 'ticker' in df_symbols.columns:
+            if 'comGroupCode' in df_symbols.columns:
+                hose_tickers = df_symbols[df_symbols['comGroupCode'] == 'HOSE']['ticker'].tolist()
+            elif 'organ_code' in df_symbols.columns:
+                hose_tickers = df_symbols[df_symbols['organ_code'] == 'HOSE']['ticker'].tolist()
+            else:
+                hose_tickers = df_symbols['ticker'].tolist()
+    except Exception:
+        pass
+        
+    if not hose_tickers:
+        try:
+            mkt = Market()
+            if hasattr(mkt, 'listing_symbols'):
+                df_symbols = mkt.listing_symbols()
+            elif hasattr(mkt, 'stock_listing_company'):
+                df_symbols = mkt.stock_listing_company()
+            else:
+                from vnstock import stock_listing_company
+                df_symbols = stock_listing_company()
+            
+            hose_tickers = df_symbols['ticker'].tolist()
+        except Exception as e:
+            print(f"Lỗi kết nối danh sách, dùng danh sách mã mặc định: {e}")
+            hose_tickers = ['ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 
+                            'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SSI', 'SSB', 'STB', 'TCB', 
+                            'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VNM', 'VRE']
+
     sample_tickers = hose_tickers[:30] 
-    
+    print(f"Đã chuẩn bị {len(sample_tickers)} mã cổ phiếu để kiểm tra.")
+
     raw_data = []
     today = datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d') # Lấy 1 năm cho đủ 200 phiên
+    start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
 
     for i, ticker in enumerate(sample_tickers):
         if i > 0 and i % 3 == 0:
@@ -135,27 +163,12 @@ def quant_multi_factor_screener(top_n=10):
             if tech is None or ratios is None:
                 continue
 
-            # ==========================================
-            # BƯỚC LỌC CỨNG (HARD FILTERS / LIQUIDITY)
-            # ==========================================
-            # 1. Lọc thanh khoản ADTV20 < 100k cổ/ngày
-            if tech['adtv_20'] < 100000:
-                print(f"  ❌ Loại {ticker}: ADTV20 quá thấp ({tech['adtv_20']:.0f} cổ/ngày)")
-                continue
+            # Hard Filters
+            if tech['adtv_20'] < 100000: continue
+            if tech['current_price'] < tech['ma200'] or tech['rsi_14'] < 35: continue
+            if not np.isnan(ratios['DE']) and ratios['DE'] > 2.5: continue
 
-            # 2. Lọc Bắt dao rơi (Giá < MA200 hoặc RSI < 35)
-            if tech['current_price'] < tech['ma200'] or tech['rsi_14'] < 35:
-                print(f"  ❌ Loại {ticker}: Xu hướng xấu (Giá < MA200 hoặc RSI < 35)")
-                continue
-
-            # 3. Lọc đòn bẩy quá cao (D/E > 2.5)
-            if not np.isnan(ratios['DE']) and ratios['DE'] > 2.5:
-                print(f"  ❌ Loại {ticker}: Nợ quá cao (D/E = {ratios['DE']:.2f})")
-                continue
-
-            # Gộp dữ liệu hợp lệ
-            entry = {'Ticker': ticker, **tech, **ratios}
-            raw_data.append(entry)
+            raw_data.append({'Ticker': ticker, **tech, **ratios})
             print(f"  ✓ Qua vòng sơ loại: {ticker}")
 
         except Exception as e:
@@ -165,24 +178,22 @@ def quant_multi_factor_screener(top_n=10):
     df = pd.DataFrame(raw_data)
     if df.empty:
         print("Không có cổ phiếu nào vượt qua vòng lọc cứng.")
+        pd.DataFrame([{'Ticker': 'N/A', 'Note': 'No qualified stocks found'}]).to_csv('top_stocks.csv', index=False)
         return
 
-    # ==========================================
-    # CHUẨN HÓA TÍNH Z-SCORE VÀ TỔNG HỢP ĐIỂM QUANT
-    # ==========================================
     def z_score(series, invert=False):
         std = series.std()
         if std == 0 or np.isnan(std): return series * 0
         z = (series - series.mean()) / std
         return -z if invert else z
 
-    # 1. Valuation Z-Score (P/E, P/B đảo chiều; Div_Yield thuận chiều)
+    # 1. Valuation Z-Score
     z_pe = z_score(df['PE'].fillna(df['PE'].median()), invert=True)
     z_pb = z_score(df['PB'].fillna(df['PB'].median()), invert=True)
     z_div = z_score(df['Div_Yield'].fillna(0))
     df['Z_Valuation'] = (z_pe + z_pb + z_div) / 3
 
-    # 2. Quality Z-Score (ROE, ROIC, ROA, Margins, OCF)
+    # 2. Quality Z-Score
     z_roe = z_score(df['ROE'].fillna(df['ROE'].median()))
     z_roic = z_score(df['ROIC'].fillna(df['ROIC'].median()))
     z_roa = z_score(df['ROA'].fillna(df['ROA'].median()))
@@ -194,18 +205,17 @@ def quant_multi_factor_screener(top_n=10):
     z_net_g = z_score(df['Net_Inc_Growth'].fillna(0))
     df['Z_Growth'] = (z_rev_g + z_net_g) / 2
 
-    # 4. Risk-Adjusted Momentum Z-Score (Momentum thuận, Volatility đảo)
+    # 4. Momentum Z-Score
     z_mom = z_score(df['momentum_6m'])
     z_vol = z_score(df['volatility_30'], invert=True)
     df['Z_Momentum'] = (z_mom + z_vol) / 2
 
-    # TỔNG HỢP QUANT MULTI-FACTOR SCORE (Tỷ trọng: 25% Val, 35% Qual, 25% Growth, 15% Mom)
+    # Quant Score
     df['Quant_Score'] = (0.25 * df['Z_Valuation'] + 
                          0.35 * df['Z_Quality'] + 
                          0.25 * df['Z_Growth'] + 
                          0.15 * df['Z_Momentum'])
 
-    # Bảng kết quả xếp hạng
     df_ranked = df.sort_values(by='Quant_Score', ascending=False).reset_index(drop=True)
     top_stocks = df_ranked.head(top_n)
 
