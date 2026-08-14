@@ -1,0 +1,9 @@
+{
+  "weights": {
+    "Z_Valuation": 0.1824,
+    "Z_Quality": 0.4105,
+    "Z_Growth": 0.2851,
+    "Z_Momentum": 0.1220
+  },
+  "last_updated": "2026-08-14"
+}
