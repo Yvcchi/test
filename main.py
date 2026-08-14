@@ -1,21 +1,26 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from vnstock import financial_ratio, stock_historical_data, listing_companies
+# Import theo chuẩn API mới của vnstock
+from vnstock import Vnstock
 
 def quant_stock_screener(top_n=5):
     print("--- BẮT ĐẦU QUÁ TRÌNH SÀNG LỌC CỔ PHIẾU QUANT ---")
     
-    # 1. Lấy danh sách cổ phiếu trên sàn HOSE
+    # Khởi tạo đối tượng Vnstock
+    stock = Vnstock()
+    
+    # 1. Lấy danh sách cổ phiếu HOSE
     try:
-        df_companies = listing_companies()
-        hose_tickers = df_companies[df_companies['comGroupCode'] == 'HOSE']['ticker'].tolist()
+        df_companies = stock.listing.all_symbols()
+        # Lọc danh sách thuộc sàn HOSE
+        hose_tickers = df_companies[df_companies['organ_code'] == 'HOSE']['ticker'].tolist()
     except Exception as e:
         print(f"Lỗi lấy danh sách cổ phiếu: {e}")
         hose_tickers = ['VNM', 'HPG', 'FPT', 'TCB', 'MBB', 'MWG', 'MSN', 'REE', 'VHM', 'ACB']
 
-    # Chọn 20 mã tiêu biểu để chạy mẫu (hoặc bỏ [:20] để quét toàn bộ sàn)
-    sample_tickers = hose_tickers[:20] 
+    # Chọn 15 mã chạy demo để tránh bị chặn IP do spam request
+    sample_tickers = hose_tickers[:15] if hose_tickers else ['VNM', 'HPG', 'FPT', 'TCB', 'MBB']
     
     screening_results = []
     today = datetime.now().strftime('%Y-%m-%d')
@@ -25,23 +30,22 @@ def quant_stock_screener(top_n=5):
         try:
             print(f"Đang xử lý mã: {ticker}...")
             
-            # 2. Lấy BCTC & Tính các chỉ số
-            df_ratio = financial_ratio(symbol=ticker, report_range='yearly', is_pro=False)
+            # Khởi tạo runner cho từng mã cổ phiếu
+            stock_runner = Vnstock().stock(symbol=ticker, source='VCI')
+            
+            # 2. Lấy chỉ số BCTC (Financial Ratios)
+            df_ratio = stock_runner.finance.ratio(period='year', lang='vi')
             if df_ratio.empty:
                 continue
                 
+            # Lấy thông tin P/E và ROE
+            # Lưu ý: Xử lý linh hoạt theo tên cột dữ liệu trả về từ vnstock
             latest_ratio = df_ratio.iloc[0]
-            pe = float(latest_ratio.get('priceToEarning', np.nan))
-            roe = float(latest_ratio.get('roe', np.nan))
+            pe = float(latest_ratio.get('priceToEarning', latest_ratio.get('P/E', np.nan)))
+            roe = float(latest_ratio.get('roe', latest_ratio.get('ROE', np.nan)))
             
             # 3. Lấy giá lịch sử tính Momentum 6M
-            df_price = stock_historical_data(
-                symbol=ticker, 
-                start_date=six_months_ago, 
-                end_date=today, 
-                resolution='1D', 
-                type='stock'
-            )
+            df_price = stock_runner.quote.history(start=six_months_ago, end=today, interval='1D')
             
             if len(df_price) < 20:
                 continue
@@ -61,18 +65,18 @@ def quant_stock_screener(top_n=5):
             })
             
         except Exception as e:
-            print(f"Bỏ qua mã {ticker}: {e}")
+            print(f"Bỏ qua mã {ticker} do lỗi: {e}")
             continue
 
     df_res = pd.DataFrame(screening_results)
     if df_res.empty:
-        print("Không có dữ liệu hợp lệ.")
+        print("Không có dữ liệu hợp lệ được tìm thấy.")
         return
 
     # 4. Tính Quant Score (Z-Score Normalization)
-    df_res['Z_PE'] = -1 * (df_res['PE'] - df_res['PE'].mean()) / df_res['PE'].std()
-    df_res['Z_ROE'] = (df_res['ROE'] - df_res['ROE'].mean()) / df_res['ROE'].std()
-    df_res['Z_Momentum'] = (df_res['Momentum_6M'] - df_res['Momentum_6M'].mean()) / df_res['Momentum_6M'].std()
+    df_res['Z_PE'] = -1 * (df_res['PE'] - df_res['PE'].mean()) / (df_res['PE'].std() + 1e-6)
+    df_res['Z_ROE'] = (df_res['ROE'] - df_res['ROE'].mean()) / (df_res['ROE'].std() + 1e-6)
+    df_res['Z_Momentum'] = (df_res['Momentum_6M'] - df_res['Momentum_6M'].mean()) / (df_res['Momentum_6M'].std() + 1e-6)
 
     # Trọng số: 30% Value, 40% Quality, 30% Momentum
     df_res['Quant_Score'] = (0.30 * df_res['Z_PE']) + (0.40 * df_res['Z_ROE']) + (0.30 * df_res['Z_Momentum'])
@@ -84,7 +88,6 @@ def quant_stock_screener(top_n=5):
     print("\n================ TOP CỔ PHIẾU ĐƯỢC LỌC ================")
     print(top_stocks[['Ticker', 'PE', 'ROE', 'Momentum_6M', 'Quant_Score']])
     
-    # Lưu file CSV để GitHub Bot commit ngược lại vào Repo
     top_stocks.to_csv('top_stocks.csv', index=False)
     print("\nĐã xuất kết quả ra file top_stocks.csv")
 
