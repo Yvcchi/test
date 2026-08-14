@@ -258,7 +258,7 @@ def quant_multi_factor_screener(top_n=20):
 
     raw_data = []
     today = datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=1000)).strftime('%Y-%m-%d')
     passed_filters = 0
     failed_count = 0
 
