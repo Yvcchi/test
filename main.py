@@ -5,6 +5,10 @@ import json
 import os
 from datetime import datetime, timedelta
 from vnstock import Quote, Finance, Listing, config
+import logging
+
+# Tắt logging verbose của vnstock
+logging.getLogger('vnstock').setLevel(logging.CRITICAL)
 
 VNSTOCK_KEY = os.getenv('VNSTOCK_API_KEY', '')
 if VNSTOCK_KEY:
@@ -96,30 +100,31 @@ FALLBACK_STOCK_TICKERS = [
 # ==========================================
 def get_all_stock_tickers():
     """
-    Lấy danh sách mã cổ phiếu từ vnstock API.
+    Lấy danh sách mã cổ phiếu từ vnstock API (với timeout 10s).
     Nếu lỗi, dùng danh sách fallback 400+ mã.
     """
     print("\n📡 Cố gắng lấy danh sách mã cổ phiếu từ vnstock API...")
     
     try:
-        # Cách 1: Thử dùng Listing().symbols()
+        from socket import timeout as socket_timeout
         listing = Listing()
+        
+        # Thử timeout 10s thay vì 30s
         df_symbols = listing.symbols()
         
-        # Lọc chỉ lấy STOCK (bỏ qua ETF, Warrant, v.v.)
         if 'type' in df_symbols.columns:
             tickers = df_symbols[df_symbols['type'] == 'STOCK']['ticker'].tolist()
         else:
             tickers = df_symbols['ticker'].tolist() if 'ticker' in df_symbols.columns else []
         
-        if tickers and len(tickers) > 100:  # Phải > 100 mới dùng
+        if tickers and len(tickers) > 100:
             print(f"✓ Lấy thành công {len(tickers)} mã cổ phiếu từ API vnstock!")
             return tickers
         else:
-            raise ValueError(f"API trả về quá ít mã ({len(tickers)}), dùng fallback")
+            raise ValueError(f"API trả về quá ít mã ({len(tickers)})")
             
     except Exception as e:
-        print(f"⚠️ API vnstock thất bại: {e}")
+        print(f"⚠️ API vnstock thất bại (timeout hoặc lỗi)")
         print(f"ℹ️ Sử dụng danh sách fallback {len(FALLBACK_STOCK_TICKERS)} mã cổ phiếu")
         return FALLBACK_STOCK_TICKERS
 
@@ -148,9 +153,9 @@ def load_optimal_weights():
                     print(f"  Trọng số: {weights}")
                     return weights
         except Exception as e:
-            print(f"⚠️ Lỗi đọc {config_path}: {e}. Chuyển sang trọng số mặc định.")
+            print(f"⚠️ Lỗi đọc {config_path}: {e}")
 
-    print("ℹ️ File config.json không khả dụng. Sử dụng bộ trọng số mặc định.")
+    print("ℹ️ Sử dụng bộ trọng số mặc định.")
     return default_weights
 
 # ==========================================
@@ -160,37 +165,40 @@ def calculate_technical_indicators(df_price):
     if df_price is None or len(df_price) < 200:
         return None
 
-    price_col = 'close' if 'close' in df_price.columns else df_price.columns[1]
-    volume_col = 'volume' if 'volume' in df_price.columns else df_price.columns[2]
+    try:
+        price_col = 'close' if 'close' in df_price.columns else df_price.columns[1]
+        volume_col = 'volume' if 'volume' in df_price.columns else df_price.columns[2]
 
-    df = df_price.copy()
-    df['close_num'] = df[price_col].astype(float)
-    df['vol_num'] = df[volume_col].astype(float)
+        df = df_price.copy()
+        df['close_num'] = df[price_col].astype(float)
+        df['vol_num'] = df[volume_col].astype(float)
 
-    adtv_20 = df['vol_num'].tail(20).mean()
-    daily_returns = df['close_num'].pct_change()
-    volatility_30 = daily_returns.tail(30).std() * np.sqrt(252)
+        adtv_20 = df['vol_num'].tail(20).mean()
+        daily_returns = df['close_num'].pct_change()
+        volatility_30 = daily_returns.tail(30).std() * np.sqrt(252)
 
-    ma200 = df['close_num'].rolling(window=200).mean().iloc[-1]
-    current_price = df['close_num'].iloc[-1]
+        ma200 = df['close_num'].rolling(window=200).mean().iloc[-1]
+        current_price = df['close_num'].iloc[-1]
 
-    price_6m_ago = df['close_num'].iloc[-126] if len(df) >= 126 else df['close_num'].iloc[0]
-    momentum_6m = (current_price - price_6m_ago) / price_6m_ago
+        price_6m_ago = df['close_num'].iloc[-126] if len(df) >= 126 else df['close_num'].iloc[0]
+        momentum_6m = (current_price - price_6m_ago) / price_6m_ago
 
-    delta = df['close_num'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / (loss + 1e-6)
-    rsi_14 = 100 - (100 / (1 + rs)).iloc[-1]
+        delta = df['close_num'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / (loss + 1e-6)
+        rsi_14 = 100 - (100 / (1 + rs)).iloc[-1]
 
-    return {
-        'current_price': current_price,
-        'adtv_20': adtv_20,
-        'volatility_30': volatility_30,
-        'ma200': ma200,
-        'momentum_6m': momentum_6m,
-        'rsi_14': rsi_14
-    }
+        return {
+            'current_price': current_price,
+            'adtv_20': adtv_20,
+            'volatility_30': volatility_30,
+            'ma200': ma200,
+            'momentum_6m': momentum_6m,
+            'rsi_14': rsi_14
+        }
+    except:
+        return None
 
 # ==========================================
 # HÀM LẤY VÀ XỬ LÝ BCTC
@@ -199,41 +207,44 @@ def extract_financial_ratios(df_ratio):
     if df_ratio is None or df_ratio.empty:
         return None
 
-    row = df_ratio.iloc[0]
-    
-    def get_val(keys, default=np.nan):
-        for k in keys:
-            for col in df_ratio.columns:
-                if k.lower() in str(col).lower():
-                    try:
-                        v = float(row[col])
-                        if not np.isnan(v): return v
-                    except: pass
-        return default
+    try:
+        row = df_ratio.iloc[0]
+        
+        def get_val(keys, default=np.nan):
+            for k in keys:
+                for col in df_ratio.columns:
+                    if k.lower() in str(col).lower():
+                        try:
+                            v = float(row[col])
+                            if not np.isnan(v): return v
+                        except: pass
+            return default
 
-    pe = get_val(['priceToEarning', 'p/e', 'pe'])
-    pb = get_val(['priceToBook', 'p/b', 'pb'])
-    div_yield = get_val(['dividendYield', 'ty_le_co_tuc', 'dividend'])
-    ev_ebitda = get_val(['ev/ebitda', 'evebitda'])
+        pe = get_val(['priceToEarning', 'p/e', 'pe'])
+        pb = get_val(['priceToBook', 'p/b', 'pb'])
+        div_yield = get_val(['dividendYield', 'ty_le_co_tuc', 'dividend'])
+        ev_ebitda = get_val(['ev/ebitda', 'evebitda'])
 
-    roe = get_val(['roe'])
-    roa = get_val(['roa'])
-    roic = get_val(['roic'])
-    de = get_val(['debtToEquity', 'd/e', 'no_vcshe'])
-    gross_margin = get_val(['grossMargin', 'bien_loi_nhuan_gop'])
-    net_margin = get_val(['netMargin', 'bien_loi_nhuan_rong'])
-    ocf_ni = get_val(['ocf/ni', 'cash_flow_quality'], default=1.0)
+        roe = get_val(['roe'])
+        roa = get_val(['roa'])
+        roic = get_val(['roic'])
+        de = get_val(['debtToEquity', 'd/e', 'no_vcshe'])
+        gross_margin = get_val(['grossMargin', 'bien_loi_nhuan_gop'])
+        net_margin = get_val(['netMargin', 'bien_loi_nhuan_rong'])
+        ocf_ni = get_val(['ocf/ni', 'cash_flow_quality'], default=1.0)
 
-    rev_growth = get_val(['revenueGrowth', 'tang_truong_doanh_thu'])
-    net_inc_growth = get_val(['netIncomeGrowth', 'tang_truong_loi_nhuan'])
-    eps_growth = get_val(['epsGrowth', 'tang_truong_eps'])
+        rev_growth = get_val(['revenueGrowth', 'tang_truong_doanh_thu'])
+        net_inc_growth = get_val(['netIncomeGrowth', 'tang_truong_loi_nhuan'])
+        eps_growth = get_val(['epsGrowth', 'tang_truong_eps'])
 
-    return {
-        'PE': pe, 'PB': pb, 'Div_Yield': div_yield, 'EV_EBITDA': ev_ebitda,
-        'ROE': roe, 'ROA': roa, 'ROIC': roic, 'DE': de,
-        'Gross_Margin': gross_margin, 'Net_Margin': net_margin, 'OCF_NI': ocf_ni,
-        'Rev_Growth': rev_growth, 'Net_Inc_Growth': net_inc_growth, 'EPS_Growth': eps_growth
-    }
+        return {
+            'PE': pe, 'PB': pb, 'Div_Yield': div_yield, 'EV_EBITDA': ev_ebitda,
+            'ROE': roe, 'ROA': roa, 'ROIC': roic, 'DE': de,
+            'Gross_Margin': gross_margin, 'Net_Margin': net_margin, 'OCF_NI': ocf_ni,
+            'Rev_Growth': rev_growth, 'Net_Inc_Growth': net_inc_growth, 'EPS_Growth': eps_growth
+        }
+    except:
+        return None
 
 # ==========================================
 # SÀNG LỌC VÀ CHẤM ĐIỂM QUANT MULTI-FACTOR
@@ -242,7 +253,6 @@ def quant_multi_factor_screener(top_n=20):
     print("\n--- BẮT ĐẦU SÀNG LỌC QUANT MULTI-FACTOR TOÀN DIỆN ---")
     weights = load_optimal_weights()
 
-    # Lấy danh sách mã (từ API hoặc fallback)
     sample_tickers = get_all_stock_tickers()
     print(f"✓ Sẽ kiểm tra {len(sample_tickers)} mã cổ phiếu")
 
@@ -250,10 +260,11 @@ def quant_multi_factor_screener(top_n=20):
     today = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
     passed_filters = 0
+    failed_count = 0
 
     for i, ticker in enumerate(sample_tickers):
-        time.sleep(0.8)
-        print(f"[{i+1}/{len(sample_tickers)}] {ticker}...", end=' ')
+        time.sleep(0.5)  # Giảm từ 0.8s xuống 0.5s
+        print(f"[{i+1}/{len(sample_tickers)}] {ticker}...", end=' ', flush=True)
         
         try:
             q = Quote(symbol=ticker, source='VCI')
@@ -284,10 +295,12 @@ def quant_multi_factor_screener(top_n=20):
             print(f"✓")
 
         except Exception as e:
+            failed_count += 1
             print(f"❌")
             continue
 
     print(f"\n📊 KẾT QUẢ LỌC: {passed_filters}/{len(sample_tickers)} mã vượt qua điều kiện")
+    print(f"   (❌ {failed_count} mã lỗi)")
 
     df = pd.DataFrame(raw_data)
     if df.empty:
