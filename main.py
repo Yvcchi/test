@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 from vnstock import Quote, Finance, Market, config
 
-VNSTOCK_KEY = os.getenv('VNSTOCK_API_KEY', 'v6')
+VNSTOCK_KEY = os.getenv('VNSTOCK_API_KEY', '')
 try:
     config.set_api_key(VNSTOCK_KEY)
     print(f"✓ Đã cấu hình Vnstock API Key thành công!")
