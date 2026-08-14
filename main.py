@@ -49,6 +49,46 @@ def load_optimal_weights():
     return default_weights
 
 # ==========================================
+# HÀM LẤY DANH SÁCH CỔ PHIẾU
+# ==========================================
+def get_all_stock_tickers():
+    """Lấy tất cả mã cổ phiếu từ vnstock hoặc danh sách fallback"""
+    try:
+        listing = Listing()
+        
+        # Thử các phương thức khác nhau tùy theo phiên bản vnstock
+        try:
+            # Cách 1: Dùng phương thức symbols()
+            df_symbols = listing.symbols()
+            tickers = df_symbols[df_symbols['type'] == 'STOCK']['ticker'].tolist()
+            print(f"✓ Lấy thành công {len(tickers)} mã cổ phiếu từ vnstock")
+            return tickers
+        except AttributeError:
+            # Cách 2: Dùng phương thức stock_list()
+            try:
+                df_symbols = listing.stock_list()
+                tickers = df_symbols['ticker'].tolist() if 'ticker' in df_symbols.columns else df_symbols.iloc[:, 0].tolist()
+                print(f"✓ Lấy thành công {len(tickers)} mã cổ phiếu từ vnstock")
+                return tickers
+            except:
+                # Cách 3: Dùng phương thức all_stocks()
+                try:
+                    df_symbols = listing.all_stocks()
+                    tickers = df_symbols['ticker'].tolist() if 'ticker' in df_symbols.columns else df_symbols.iloc[:, 0].tolist()
+                    print(f"✓ Lấy thành công {len(tickers)} mã cổ phiếu từ vnstock")
+                    return tickers
+                except:
+                    raise
+                    
+    except Exception as e:
+        print(f"⚠️ Không thể lấy danh sách cổ phiếu từ vnstock: {e}")
+        print(f"ℹ️ Dùng danh sách mặc định 27 mã")
+        # Danh sách fallback: 27 mã blue-chip
+        return ['ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 
+                'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SSI', 'SSB', 'STB', 'TCB', 
+                'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VNM', 'VRE']
+
+# ==========================================
 # HÀM TÍNH CHỈ BÁO KỸ THUẬT & THANH KHOẢN
 # ==========================================
 def calculate_technical_indicators(df_price):
@@ -137,15 +177,8 @@ def quant_multi_factor_screener(top_n=20):
     print("--- BẮT ĐẦU SÀNG LỌC QUANT MULTI-FACTOR TOÀN DIỆN ---")
     weights = load_optimal_weights()
 
-    # Lấy danh sách cổ phiếu toàn thị trường bằng vnstock3
-    try:
-        df_symbols = Listing().symbols()
-        sample_tickers = df_symbols[df_symbols['type'] == 'STOCK']['ticker'].tolist()
-    except Exception as e:
-        print(f"Dùng danh sách mặc định do lỗi: {e}")
-        sample_tickers = ['ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 
-                          'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SSI', 'SSB', 'STB', 'TCB', 
-                          'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VNM', 'VRE']
+    # Lấy danh sách cổ phiếu toàn thị trường
+    sample_tickers = get_all_stock_tickers()
 
     print(f"Đã chuẩn bị {len(sample_tickers)} mã cổ phiếu để kiểm tra.")
 
