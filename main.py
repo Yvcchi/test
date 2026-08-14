@@ -3,57 +3,71 @@ import numpy as np
 import time
 from datetime import datetime, timedelta
 
-from vnstock import Quote, Finance
+from vnstock import Quote, Finance, Market
 
 def fetch_data_safely(symbol):
-    """Lấy dữ liệu an toàn, chủ động chờ để tránh đụng trần 20 req/phút"""
-    print(f"Đang xử lý mã: {symbol}...")
-    
-    # Lấy BCTC từ VCI
-    try:
-        f = Finance(symbol=symbol, source='VCI')
-        df_ratio = f.ratio(period='year', lang='vi')
-    except Exception as e:
-        print(f"  └─ Lỗi lấy BCTC {symbol}: {e}")
-        df_ratio = None
-
-    # Nghỉ 3 giây giữa các lượt gọi API
-    time.sleep(3)
-
-    # Lấy giá lịch sử từ VCI
+    """Lấy BCTC và Giá lịch sử an toàn, kiểm soát nhịp độ gọi API"""
     today = datetime.now().strftime('%Y-%m-%d')
     six_months_ago = (datetime.now() - timedelta(days=180)).strftime('%Y-%m-%d')
     
-    try:
-        q = Quote(symbol=symbol, source='VCI')
-        df_price = q.history(start=six_months_ago, end=today, interval='1D')
-    except Exception as e:
-        print(f"  └─ Lỗi lấy giá {symbol}: {e}")
-        df_price = None
+    df_ratio = None
+    df_price = None
 
-    # Nghỉ tiếp 4 giây để đảm bảo tổng thời gian xử lý 1 mã > 7 giây
-    time.sleep(4)
-    
+    # 1. Lấy BCTC (dùng VCI, nếu lỗi thử TCBS)
+    for src in ['VCI', 'TCBS']:
+        try:
+            f = Finance(symbol=symbol, source=src)
+            df_ratio = f.ratio(period='year', lang='vi')
+            if df_ratio is not None and not df_ratio.empty:
+                break
+        except Exception:
+            pass
+        time.sleep(2)
+
+    time.sleep(2)
+
+    # 2. Lấy giá lịch sử
+    for src in ['VCI', 'TCBS']:
+        try:
+            q = Quote(symbol=symbol, source=src)
+            df_price = q.history(start=six_months_ago, end=today, interval='1D')
+            if df_price is not None and not df_price.empty:
+                break
+        except Exception:
+            pass
+        time.sleep(2)
+
     return df_ratio, df_price
 
-def quant_stock_screener(top_n=5):
-    print("--- BẮT ĐẦU QUÁ TRÌNH SÀNG LỌC CỔ PHIẾU QUANT ---")
+def quant_stock_screener(top_n=10):
+    print("--- BẮT ĐẦU QUÁ TRÌNH SÀNG LỌC TOÀN BỘ CỔ PHIẾU HOSE ---")
     
-    # Chọn danh sách 6 cổ phiếu hàng đầu (đủ tạo Top 5 và nằm an toàn trong giới hạn API)
-    sample_tickers = ['VNM', 'HPG', 'FPT', 'TCB', 'MBB', 'MWG']
-    
+    # 1. Lấy danh sách toàn bộ cổ phiếu trên sàn HOSE
+    try:
+        mkt = Market()
+        df_symbols = mkt.listing_symbols()
+        if 'organ_code' in df_symbols.columns:
+            hose_tickers = df_symbols[df_symbols['organ_code'] == 'HOSE']['ticker'].tolist()
+        else:
+            hose_tickers = df_symbols['ticker'].tolist()
+        print(f" Tìm thấy {len(hose_tickers)} cổ phiếu trên sàn HOSE.")
+    except Exception as e:
+        print(f"Lỗi lấy danh sách cổ phiếu: {e}")
+        return
+
     screening_results = []
 
-    for i, ticker in enumerate(sample_tickers):
-        # Sau mỗi 3 mã, nghỉ 35 giây để Rate Limit của Vnstock reset lại hoàn toàn
+    # 2. Vòng lặp quét qua từng mã cổ phiếu
+    for i, ticker in enumerate(hose_tickers):
+        # Sau mỗi 3 mã cổ phiếu, tạm dừng 35 giây để bộ đếm Rate Limit của Vnstock reset
         if i > 0 and i % 3 == 0:
-            print("⏳ Đang tạm dừng 35 giây để reset giới hạn API (Rate Limit)...")
+            print(f"⏳ Đã xử lý {i}/{len(hose_tickers)} mã. Tạm dừng 35 giây để reset Rate Limit...")
             time.sleep(35)
 
+        print(f"[{i+1}/{len(hose_tickers)}] Đang quét mã: {ticker}...")
         df_ratio, df_price = fetch_data_safely(ticker)
 
         if df_ratio is None or df_ratio.empty or df_price is None or df_price.empty or len(df_price) < 20:
-            print(f"Bỏ qua mã {ticker} do thiếu dữ liệu.")
             continue
             
         latest_ratio = df_ratio.iloc[0]
@@ -76,9 +90,9 @@ def quant_stock_screener(top_n=5):
         price_end = float(df_price.iloc[-1][price_col])
         momentum_6m = (price_end - price_start) / price_start
 
-        # Gán giá trị mặc định nếu thiếu chỉ số
-        if np.isnan(pe) or pe <= 0: pe = 12.0
-        if np.isnan(roe): roe = 15.0
+        # Bỏ qua các mã lỗ (PE <= 0) hoặc không có dữ liệu PE/ROE
+        if np.isnan(pe) or pe <= 0 or np.isnan(roe):
+            continue
 
         screening_results.append({
             'Ticker': ticker,
@@ -86,7 +100,6 @@ def quant_stock_screener(top_n=5):
             'ROE': roe,
             'Momentum_6M': momentum_6m
         })
-        print(f"  ✓ {ticker}: PE={pe:.1f}, ROE={roe:.1f}%, Momentum={momentum_6m*100:.1f}%")
 
     df_res = pd.DataFrame(screening_results)
     if df_res.empty:
@@ -94,22 +107,23 @@ def quant_stock_screener(top_n=5):
         pd.DataFrame([{'Ticker': 'N/A', 'Note': 'No data'}]).to_csv('top_stocks.csv', index=False)
         return
 
-    # Tính Quant Score (Z-Score)
+    # 3. Tính Quant Score (Z-Score Normalization)
     df_res['Z_PE'] = -1 * (df_res['PE'] - df_res['PE'].mean()) / (df_res['PE'].std() + 1e-6)
     df_res['Z_ROE'] = (df_res['ROE'] - df_res['ROE'].mean()) / (df_res['ROE'].std() + 1e-6)
     df_res['Z_Momentum'] = (df_res['Momentum_6M'] - df_res['Momentum_6M'].mean()) / (df_res['Momentum_6M'].std() + 1e-6)
 
+    # Trọng số: 30% Value, 40% Quality, 30% Momentum
     df_res['Quant_Score'] = (0.30 * df_res['Z_PE']) + (0.40 * df_res['Z_ROE']) + (0.30 * df_res['Z_Momentum'])
 
-    # Xuất file CSV
+    # 4. Xuất Top 10 Cổ Phếu Tốt Nhất ra CSV
     df_ranked = df_res.sort_values(by='Quant_Score', ascending=False).reset_index(drop=True)
     top_stocks = df_ranked.head(top_n)
     
-    print("\n================ TOP CỔ PHIẾU ĐƯỢC LỌC ================")
+    print("\n================ TOP CỔ PHIẾU HOSE ĐƯỢC LỌC ================")
     print(top_stocks[['Ticker', 'PE', 'ROE', 'Momentum_6M', 'Quant_Score']])
     
     top_stocks.to_csv('top_stocks.csv', index=False)
     print("\nĐã lưu kết quả thành công vào file top_stocks.csv")
 
 if __name__ == '__main__':
-    quant_stock_screener(top_n=5)
+    quant_stock_screener(top_n=10)
