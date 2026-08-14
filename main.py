@@ -1,15 +1,52 @@
 import pandas as pd
 import numpy as np
 import time
+import json
+import os
 from datetime import datetime, timedelta
 from vnstock import Quote, Finance, Market
+
+# ==========================================
+# HÀM ĐỌC TRỌNG SỐ TỐI ƯU TỪ PSO (CONFIG)
+# ==========================================
+def load_optimal_weights():
+    """
+    Đọc bộ trọng số tối ưu do train_pso.py xuất ra file config.json.
+    Nếu không tìm thấy file hoặc lỗi, sử dụng bộ trọng số mặc định.
+    """
+    config_path = 'config.json'
+    default_weights = {
+        'Z_Valuation': 0.25,
+        'Z_Quality': 0.35,
+        'Z_Growth': 0.25,
+        'Z_Momentum': 0.15
+    }
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                weights = config.get('weights', {})
+                last_updated = config.get('last_updated', 'N/A')
+                
+                # Kiểm tra đủ 4 nhóm nhân tố
+                required_keys = ['Z_Valuation', 'Z_Quality', 'Z_Growth', 'Z_Momentum']
+                if all(k in weights for k in required_keys):
+                    print(f"✓ Đã tải thành công trọng số tối ưu PSO (Cập nhật ngày: {last_updated})")
+                    print(f"  Trọng số: {weights}")
+                    return weights
+        except Exception as e:
+            print(f"⚠️ Lỗi đọc {config_path}: {e}. Chuyển sang trọng số mặc định.")
+
+    print("ℹ️ File config.json không khả dụng. Sử dụng bộ trọng số mặc định (0.25, 0.35, 0.25, 0.15).")
+    return default_weights
 
 # ==========================================
 # HÀM TÍNH CHỈ BÁO KỸ THUẬT & THANH KHOẢN
 # ==========================================
 def calculate_technical_indicators(df_price):
     """Tính ADTV20, Volatility, MA200, RSI14, Momentum 6M từ DF giá lịch sử"""
-    if df_price is None or len(df_price) < 200: # Cần tối thiểu 200 phiên cho MA200
+    if df_price is None or len(df_price) < 200:  # Cần tối thiểu 200 phiên cho MA200
         return None
 
     price_col = 'close' if 'close' in df_price.columns else df_price.columns[1]
@@ -22,9 +59,9 @@ def calculate_technical_indicators(df_price):
     # 1. Thanh khoản trung bình 20 ngày (ADTV 20)
     adtv_20 = df['vol_num'].tail(20).mean()
 
-    # 2. Độ biến động (Volatility 30 ngày) - Độ lệch chuẩn chuỗi lợi nhuận theo ngày
+    # 2. Độ biến động (Volatility 30 ngày) - Chuẩn hóa năm
     daily_returns = df['close_num'].pct_change()
-    volatility_30 = daily_returns.tail(30).std() * np.sqrt(252) # Chuẩn hóa năm
+    volatility_30 = daily_returns.tail(30).std() * np.sqrt(252)
 
     # 3. MA200
     ma200 = df['close_num'].rolling(window=200).mean().iloc[-1]
@@ -98,9 +135,12 @@ def extract_financial_ratios(df_ratio):
 # SÀNG LỌC VÀ CHẤM ĐIỂM QUANT MULTI-FACTOR
 # ==========================================
 def quant_multi_factor_screener(top_n=10):
-    print("--- BẮT ĐẦU SÀNG LỌC QUANT MULTI-FACTOR TOÀN DIỆN (13 TIÊU CHÍ) ---")
+    print("--- BẮT ĐẦU SÀNG LỌC QUANT MULTI-FACTOR TOÀN DIỆN ---")
     
-    # Lấy danh sách cổ phiếu HOSE an toàn với mọi phiên bản vnstock
+    # 1. Tải bộ trọng số tối ưu từ PSO
+    weights = load_optimal_weights()
+
+    # 2. Lấy danh sách cổ phiếu HOSE an toàn
     hose_tickers = []
     try:
         from vnstock import listing_companies
@@ -148,13 +188,13 @@ def quant_multi_factor_screener(top_n=10):
         print(f"[{i+1}/{len(sample_tickers)}] Đang xử lý mã: {ticker}...")
         
         try:
-            # 1. Lấy giá lịch sử
+            # Lấy giá lịch sử
             q = Quote(symbol=ticker, source='VCI')
             df_price = q.history(start=start_date, end=today, interval='1D')
             tech = calculate_technical_indicators(df_price)
             time.sleep(2)
 
-            # 2. Lấy BCTC
+            # Lấy BCTC
             f = Finance(symbol=ticker, source='VCI')
             df_ratio = f.ratio(period='year', lang='vi')
             ratios = extract_financial_ratios(df_ratio)
@@ -163,7 +203,7 @@ def quant_multi_factor_screener(top_n=10):
             if tech is None or ratios is None:
                 continue
 
-            # Hard Filters
+            # Hard Filters (Lọc cứng)
             if tech['adtv_20'] < 100000: continue
             if tech['current_price'] < tech['ma200'] or tech['rsi_14'] < 35: continue
             if not np.isnan(ratios['DE']) and ratios['DE'] > 2.5: continue
@@ -181,6 +221,7 @@ def quant_multi_factor_screener(top_n=10):
         pd.DataFrame([{'Ticker': 'N/A', 'Note': 'No qualified stocks found'}]).to_csv('top_stocks.csv', index=False)
         return
 
+    # Hàm chuẩn hóa Z-Score
     def z_score(series, invert=False):
         std = series.std()
         if std == 0 or np.isnan(std): return series * 0
@@ -210,11 +251,13 @@ def quant_multi_factor_screener(top_n=10):
     z_vol = z_score(df['volatility_30'], invert=True)
     df['Z_Momentum'] = (z_mom + z_vol) / 2
 
-    # Quant Score
-    df['Quant_Score'] = (0.25 * df['Z_Valuation'] + 
-                         0.35 * df['Z_Quality'] + 
-                         0.25 * df['Z_Growth'] + 
-                         0.15 * df['Z_Momentum'])
+    # 5. Quant Score (TÍNH THEO TRỌNG SỐ TỐI ƯU TỪ PSO)
+    df['Quant_Score'] = (
+        weights['Z_Valuation'] * df['Z_Valuation'] + 
+        weights['Z_Quality']   * df['Z_Quality']   + 
+        weights['Z_Growth']    * df['Z_Growth']    + 
+        weights['Z_Momentum']  * df['Z_Momentum']
+    )
 
     df_ranked = df.sort_values(by='Quant_Score', ascending=False).reset_index(drop=True)
     top_stocks = df_ranked.head(top_n)
