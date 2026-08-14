@@ -4,14 +4,20 @@ import time
 import json
 import os
 from datetime import datetime, timedelta
-from vnstock import Quote, Finance, Market, config
+from vnstock import Quote, Finance, Listing, config
 
 VNSTOCK_KEY = os.getenv('VNSTOCK_API_KEY', '')
-try:
-    config.set_api_key(VNSTOCK_KEY)
-    print(f"✓ Đã cấu hình Vnstock API Key thành công!")
-except Exception as e:
-    print(f"⚠️ Lỗi cấu hình API Key: {e}")
+if VNSTOCK_KEY:
+    try:
+        #vnstock v3 dùng set_token hoặc register
+        if hasattr(config, 'set_token'):
+            config.set_token(VNSTOCK_KEY)
+        elif hasattr(config, 'set_api_key'):
+            config.set_api_key(VNSTOCK_KEY)
+        print(f"✓ Đã cấu hình Vnstock API Key thành công!")
+    except Exception as e:
+        print(f"⚠️ Lỗi cấu hình API Key: {e}")
+
 # ==========================================
 # HÀM ĐỌC TRỌNG SỐ TỐI ƯU TỪ PSO (CONFIG)
 # ==========================================
@@ -27,9 +33,9 @@ def load_optimal_weights():
     if os.path.exists(config_path):
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                weights = config.get('weights', {})
-                last_updated = config.get('last_updated', 'N/A')
+                cfg = json.load(f)
+                weights = cfg.get('weights', {})
+                last_updated = cfg.get('last_updated', 'N/A')
                 
                 required_keys = ['Z_Valuation', 'Z_Quality', 'Z_Growth', 'Z_Momentum']
                 if all(k in weights for k in required_keys):
@@ -131,23 +137,16 @@ def quant_multi_factor_screener(top_n=20):
     print("--- BẮT ĐẦU SÀNG LỌC QUANT MULTI-FACTOR TOÀN DIỆN ---")
     weights = load_optimal_weights()
 
-    # Lấy danh sách cổ phiếu
-    hose_tickers = ['ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 
-                    'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SSI', 'SSB', 'STB', 'TCB', 
-                    'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VNM', 'VRE']
-    
+    # Lấy danh sách cổ phiếu toàn thị trường bằng vnstock3
     try:
-        from vnstock import listing_companies
-        df_symbols = listing_companies()
-        if 'ticker' in df_symbols.columns:
-            if 'comGroupCode' in df_symbols.columns:
-                hose_tickers = df_symbols[df_symbols['comGroupCode'] == 'HOSE']['ticker'].tolist()
-            else:
-                hose_tickers = df_symbols['ticker'].tolist()
+        df_symbols = Listing().symbols()
+        sample_tickers = df_symbols[df_symbols['type'] == 'STOCK']['ticker'].tolist()
     except Exception as e:
         print(f"Dùng danh sách mặc định do lỗi: {e}")
+        sample_tickers = ['ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 
+                          'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SSI', 'SSB', 'STB', 'TCB', 
+                          'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VNM', 'VRE']
 
-    sample_tickers = hose_tickers
     print(f"Đã chuẩn bị {len(sample_tickers)} mã cổ phiếu để kiểm tra.")
 
     raw_data = []
@@ -155,7 +154,6 @@ def quant_multi_factor_screener(top_n=20):
     start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
 
     for i, ticker in enumerate(sample_tickers):
-        # Giảm time.sleep xuống 1.5 giây mỗi mã để tránh bị đứng quá lâu
         time.sleep(1.5)
         print(f"[{i+1}/{len(sample_tickers)}] Đang xử lý mã: {ticker}...")
         
@@ -233,7 +231,6 @@ def quant_multi_factor_screener(top_n=20):
     print("\n================ TOP CỔ PHIẾU QUANT MULTI-FACTOR ================")
     print(top_stocks[['Ticker', 'current_price', 'PE', 'ROE', 'Rev_Growth', 'momentum_6m', 'Quant_Score']])
 
-    # Ghi đè trực tiếp và ép cập nhật timestamp
     top_stocks.to_csv('top_stocks.csv', index=False)
     print(f"\n✅ Đã lưu thành công {len(top_stocks)} mã cổ phiếu vào top_stocks.csv lúc {datetime.now().strftime('%H:%M:%S')}")
 
