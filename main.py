@@ -4,8 +4,14 @@ import time
 import json
 import os
 from datetime import datetime, timedelta
-from vnstock import Quote, Finance, Market
+from vnstock import Quote, Finance, Market, config
 
+VNSTOCK_KEY = os.getenv('VNSTOCK_API_KEY', 'vnstock_9a7c79177954459d6c1109f6ee8590e6')
+try:
+    config.set_api_key(VNSTOCK_KEY)
+    print(f"✓ Đã cấu hình Vnstock API Key thành công!")
+except Exception as e:
+    print(f"⚠️ Lỗi cấu hình API Key: {e}")
 # ==========================================
 # HÀM ĐỌC TRỌNG SỐ TỐI ƯU TỪ PSO (CONFIG)
 # ==========================================
