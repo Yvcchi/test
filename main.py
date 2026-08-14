@@ -10,10 +10,6 @@ from vnstock import Quote, Finance, Market
 # HÀM ĐỌC TRỌNG SỐ TỐI ƯU TỪ PSO (CONFIG)
 # ==========================================
 def load_optimal_weights():
-    """
-    Đọc bộ trọng số tối ưu do train_pso.py xuất ra file config.json.
-    Nếu không tìm thấy file hoặc lỗi, sử dụng bộ trọng số mặc định.
-    """
     config_path = 'config.json'
     default_weights = {
         'Z_Valuation': 0.25,
@@ -29,7 +25,6 @@ def load_optimal_weights():
                 weights = config.get('weights', {})
                 last_updated = config.get('last_updated', 'N/A')
                 
-                # Kiểm tra đủ 4 nhóm nhân tố
                 required_keys = ['Z_Valuation', 'Z_Quality', 'Z_Growth', 'Z_Momentum']
                 if all(k in weights for k in required_keys):
                     print(f"✓ Đã tải thành công trọng số tối ưu PSO (Cập nhật ngày: {last_updated})")
@@ -38,15 +33,14 @@ def load_optimal_weights():
         except Exception as e:
             print(f"⚠️ Lỗi đọc {config_path}: {e}. Chuyển sang trọng số mặc định.")
 
-    print("ℹ️ File config.json không khả dụng. Sử dụng bộ trọng số mặc định (0.25, 0.35, 0.25, 0.15).")
+    print("ℹ️ File config.json không khả dụng. Sử dụng bộ trọng số mặc định.")
     return default_weights
 
 # ==========================================
 # HÀM TÍNH CHỈ BÁO KỸ THUẬT & THANH KHOẢN
 # ==========================================
 def calculate_technical_indicators(df_price):
-    """Tính ADTV20, Volatility, MA200, RSI14, Momentum 6M từ DF giá lịch sử"""
-    if df_price is None or len(df_price) < 200:  # Cần tối thiểu 200 phiên cho MA200
+    if df_price is None or len(df_price) < 200:
         return None
 
     price_col = 'close' if 'close' in df_price.columns else df_price.columns[1]
@@ -56,22 +50,16 @@ def calculate_technical_indicators(df_price):
     df['close_num'] = df[price_col].astype(float)
     df['vol_num'] = df[volume_col].astype(float)
 
-    # 1. Thanh khoản trung bình 20 ngày (ADTV 20)
     adtv_20 = df['vol_num'].tail(20).mean()
-
-    # 2. Độ biến động (Volatility 30 ngày) - Chuẩn hóa năm
     daily_returns = df['close_num'].pct_change()
     volatility_30 = daily_returns.tail(30).std() * np.sqrt(252)
 
-    # 3. MA200
     ma200 = df['close_num'].rolling(window=200).mean().iloc[-1]
     current_price = df['close_num'].iloc[-1]
 
-    # 4. Momentum 6M (126 phiên giao dịch)
     price_6m_ago = df['close_num'].iloc[-126] if len(df) >= 126 else df['close_num'].iloc[0]
     momentum_6m = (current_price - price_6m_ago) / price_6m_ago
 
-    # 5. RSI 14 ngày
     delta = df['close_num'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -91,7 +79,6 @@ def calculate_technical_indicators(df_price):
 # HÀM LẤY VÀ XỬ LÝ BCTC
 # ==========================================
 def extract_financial_ratios(df_ratio):
-    """Trích xuất các chỉ số tài chính từ dataframe BCTC của vnstock"""
     if df_ratio is None or df_ratio.empty:
         return None
 
@@ -134,44 +121,25 @@ def extract_financial_ratios(df_ratio):
 # ==========================================
 # SÀNG LỌC VÀ CHẤM ĐIỂM QUANT MULTI-FACTOR
 # ==========================================
-def quant_multi_factor_screener(top_n=10):
+def quant_multi_factor_screener(top_n=20):
     print("--- BẮT ĐẦU SÀNG LỌC QUANT MULTI-FACTOR TOÀN DIỆN ---")
-    
-    # 1. Tải bộ trọng số tối ưu từ PSO
     weights = load_optimal_weights()
 
-    # 2. Lấy danh sách cổ phiếu HOSE an toàn
-    hose_tickers = []
+    # Lấy danh sách cổ phiếu
+    hose_tickers = ['ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 
+                    'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SSI', 'SSB', 'STB', 'TCB', 
+                    'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VNM', 'VRE']
+    
     try:
         from vnstock import listing_companies
         df_symbols = listing_companies()
         if 'ticker' in df_symbols.columns:
             if 'comGroupCode' in df_symbols.columns:
                 hose_tickers = df_symbols[df_symbols['comGroupCode'] == 'HOSE']['ticker'].tolist()
-            elif 'organ_code' in df_symbols.columns:
-                hose_tickers = df_symbols[df_symbols['organ_code'] == 'HOSE']['ticker'].tolist()
             else:
                 hose_tickers = df_symbols['ticker'].tolist()
-    except Exception:
-        pass
-        
-    if not hose_tickers:
-        try:
-            mkt = Market()
-            if hasattr(mkt, 'listing_symbols'):
-                df_symbols = mkt.listing_symbols()
-            elif hasattr(mkt, 'stock_listing_company'):
-                df_symbols = mkt.stock_listing_company()
-            else:
-                from vnstock import stock_listing_company
-                df_symbols = stock_listing_company()
-            
-            hose_tickers = df_symbols['ticker'].tolist()
-        except Exception as e:
-            print(f"Lỗi kết nối danh sách, dùng danh sách mã mặc định: {e}")
-            hose_tickers = ['ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 
-                            'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SSI', 'SSB', 'STB', 'TCB', 
-                            'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VNM', 'VRE']
+    except Exception as e:
+        print(f"Dùng danh sách mặc định do lỗi: {e}")
 
     sample_tickers = hose_tickers
     print(f"Đã chuẩn bị {len(sample_tickers)} mã cổ phiếu để kiểm tra.")
@@ -181,24 +149,18 @@ def quant_multi_factor_screener(top_n=10):
     start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
 
     for i, ticker in enumerate(sample_tickers):
-        if i > 0 and i % 3 == 0:
-            print("⏳ Đang tạm dừng 35 giây để reset Rate Limit...")
-            time.sleep(35)
-
+        # Giảm time.sleep xuống 1.5 giây mỗi mã để tránh bị đứng quá lâu
+        time.sleep(1.5)
         print(f"[{i+1}/{len(sample_tickers)}] Đang xử lý mã: {ticker}...")
         
         try:
-            # Lấy giá lịch sử
             q = Quote(symbol=ticker, source='VCI')
             df_price = q.history(start=start_date, end=today, interval='1D')
             tech = calculate_technical_indicators(df_price)
-            time.sleep(2)
 
-            # Lấy BCTC
             f = Finance(symbol=ticker, source='VCI')
             df_ratio = f.ratio(period='year', lang='vi')
             ratios = extract_financial_ratios(df_ratio)
-            time.sleep(2)
 
             if tech is None or ratios is None:
                 continue
@@ -212,12 +174,12 @@ def quant_multi_factor_screener(top_n=10):
             print(f"  ✓ Qua vòng sơ loại: {ticker}")
 
         except Exception as e:
-            print(f"  └─ Lỗi {ticker}: {e}")
+            print(f"  └─ Bỏ qua {ticker} do lỗi: {e}")
             continue
 
     df = pd.DataFrame(raw_data)
     if df.empty:
-        print("Không có cổ phiếu nào vượt qua vòng lọc cứng.")
+        print("❌ Không có cổ phiếu nào vượt qua vòng lọc cứng.")
         pd.DataFrame([{'Ticker': 'N/A', 'Note': 'No qualified stocks found'}]).to_csv('top_stocks.csv', index=False)
         return
 
@@ -251,7 +213,7 @@ def quant_multi_factor_screener(top_n=10):
     z_vol = z_score(df['volatility_30'], invert=True)
     df['Z_Momentum'] = (z_mom + z_vol) / 2
 
-    # 5. Quant Score (TÍNH THEO TRỌNG SỐ TỐI ƯU TỪ PSO)
+    # 5. Tính Quant Score
     df['Quant_Score'] = (
         weights['Z_Valuation'] * df['Z_Valuation'] + 
         weights['Z_Quality']   * df['Z_Quality']   + 
@@ -260,13 +222,14 @@ def quant_multi_factor_screener(top_n=10):
     )
 
     df_ranked = df.sort_values(by='Quant_Score', ascending=False).reset_index(drop=True)
-    top_stocks = df_ranked.head(top_n)
+    top_stocks = df_ranked.head(top_n) if top_n else df_ranked
 
     print("\n================ TOP CỔ PHIẾU QUANT MULTI-FACTOR ================")
     print(top_stocks[['Ticker', 'current_price', 'PE', 'ROE', 'Rev_Growth', 'momentum_6m', 'Quant_Score']])
 
+    # Ghi đè trực tiếp và ép cập nhật timestamp
     top_stocks.to_csv('top_stocks.csv', index=False)
-    print("\nĐã lưu kết quả Quant nâng cao vào top_stocks.csv")
+    print(f"\n✅ Đã lưu thành công {len(top_stocks)} mã cổ phiếu vào top_stocks.csv lúc {datetime.now().strftime('%H:%M:%S')}")
 
 if __name__ == '__main__':
-    quant_multi_factor_screener(top_n=None)
+    quant_multi_factor_screener(top_n=20)
