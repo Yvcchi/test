@@ -1,26 +1,47 @@
 import pandas as pd
 import numpy as np
+import time
 from datetime import datetime, timedelta
-# Import theo chuẩn API mới của vnstock
-from vnstock import Vnstock
+
+# Import theo chuẩn module mới vnstock.api
+from vnstock.api.quote import Quote
+from vnstock.api.financial import Financial
+from vnstock.api.market import Market
+
+def get_data_with_retry(fetch_func, max_retries=3, delay=35):
+    """Hàm bổ trợ: Tự động đợi và thử lại nếu bị dính Rate Limit"""
+    for attempt in range(max_retries):
+        try:
+            res = fetch_func()
+            if res is not None and not res.empty:
+                return res
+        except Exception as e:
+            if "Rate limit" in str(e) or "20/20" in str(e):
+                print(f"⚠️ Dính Rate Limit. Đang chờ {delay} giây để hạ nhiệt...")
+                time.sleep(delay)
+            else:
+                raise e
+    return None
 
 def quant_stock_screener(top_n=5):
-    print("--- BẮT ĐẦU QUÁ TRÌNH SÀNG LỌC CỔ PHIẾU QUANT ---")
+    print("--- BẮT ĐẦU QUÁ TRÌNH SÀNG LỌC CỔ PHIẾU QUANT (V2) ---")
     
-    # Khởi tạo đối tượng Vnstock
-    stock = Vnstock()
+    # 1. Khởi tạo các module API mới
+    mkt = Market(source='VCI')
     
-    # 1. Lấy danh sách cổ phiếu HOSE
     try:
-        df_companies = stock.listing.all_symbols()
+        df_companies = mkt.listing_symbols()
         # Lọc danh sách thuộc sàn HOSE
-        hose_tickers = df_companies[df_companies['organ_code'] == 'HOSE']['ticker'].tolist()
+        if 'organ_code' in df_companies.columns:
+            hose_tickers = df_companies[df_companies['organ_code'] == 'HOSE']['ticker'].tolist()
+        else:
+            hose_tickers = df_companies['ticker'].tolist()
     except Exception as e:
         print(f"Lỗi lấy danh sách cổ phiếu: {e}")
         hose_tickers = ['VNM', 'HPG', 'FPT', 'TCB', 'MBB', 'MWG', 'MSN', 'REE', 'VHM', 'ACB']
 
-    # Chọn 15 mã chạy demo để tránh bị chặn IP do spam request
-    sample_tickers = hose_tickers[:15] if hose_tickers else ['VNM', 'HPG', 'FPT', 'TCB', 'MBB']
+    # Chọn 8 mã để chạy an toàn trong ngưỡng Rate Limit 20 req/phút
+    sample_tickers = hose_tickers[:8] if hose_tickers else ['VNM', 'HPG', 'FPT', 'TCB', 'MBB']
     
     screening_results = []
     today = datetime.now().strftime('%Y-%m-%d')
@@ -30,31 +51,33 @@ def quant_stock_screener(top_n=5):
         try:
             print(f"Đang xử lý mã: {ticker}...")
             
-            # Khởi tạo runner cho từng mã cổ phiếu
-            stock_runner = Vnstock().stock(symbol=ticker, source='VCI')
+            q = Quote(symbol=ticker, source='VCI')
+            f = Financial(symbol=ticker, source='VCI')
             
-            # 2. Lấy chỉ số BCTC (Financial Ratios)
-            df_ratio = stock_runner.finance.ratio(period='year', lang='vi')
-            if df_ratio.empty:
+            # 2. Lấy BCTC (dùng Retry handler)
+            df_ratio = get_data_with_retry(lambda: f.ratio(period='year', lang='vi'))
+            
+            # Giảm tải cho API
+            time.sleep(2) 
+            
+            # 3. Lấy giá lịch sử
+            df_price = get_data_with_retry(lambda: q.history(start=six_months_ago, end=today, interval='1D'))
+
+            if df_ratio is None or df_price is None or len(df_price) < 20:
+                print(f"Bỏ qua mã {ticker} do thiếu dữ liệu.")
+                time.sleep(2)
                 continue
                 
-            # Lấy thông tin P/E và ROE
-            # Lưu ý: Xử lý linh hoạt theo tên cột dữ liệu trả về từ vnstock
             latest_ratio = df_ratio.iloc[0]
             pe = float(latest_ratio.get('priceToEarning', latest_ratio.get('P/E', np.nan)))
             roe = float(latest_ratio.get('roe', latest_ratio.get('ROE', np.nan)))
-            
-            # 3. Lấy giá lịch sử tính Momentum 6M
-            df_price = stock_runner.quote.history(start=six_months_ago, end=today, interval='1D')
-            
-            if len(df_price) < 20:
-                continue
-                
+
             price_start = df_price.iloc[0]['close']
             price_end = df_price.iloc[-1]['close']
             momentum_6m = (price_end - price_start) / price_start
 
             if np.isnan(pe) or np.isnan(roe) or pe <= 0:
+                time.sleep(2)
                 continue
 
             screening_results.append({
@@ -64,8 +87,12 @@ def quant_stock_screener(top_n=5):
                 'Momentum_6M': momentum_6m
             })
             
+            # Đợi 3s giữa mỗi mã cổ phiếu để không bị vượt 20 requests/phút
+            time.sleep(3)
+            
         except Exception as e:
             print(f"Bỏ qua mã {ticker} do lỗi: {e}")
+            time.sleep(3)
             continue
 
     df_res = pd.DataFrame(screening_results)
