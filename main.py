@@ -173,7 +173,7 @@ def quant_multi_factor_screener(top_n=10):
                             'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SSI', 'SSB', 'STB', 'TCB', 
                             'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VNM', 'VRE']
 
-    sample_tickers = hose_tickers[:30] 
+    sample_tickers = hose_tickers
     print(f"Đã chuẩn bị {len(sample_tickers)} mã cổ phiếu để kiểm tra.")
 
     raw_data = []
@@ -269,4 +269,4 @@ def quant_multi_factor_screener(top_n=10):
     print("\nĐã lưu kết quả Quant nâng cao vào top_stocks.csv")
 
 if __name__ == '__main__':
-    quant_multi_factor_screener(top_n=10)
+    quant_multi_factor_screener(top_n=None)
