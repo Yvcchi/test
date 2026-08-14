@@ -3,13 +3,13 @@ import numpy as np
 import time
 from datetime import datetime, timedelta
 
-# Import theo chuẩn module mới vnstock.api
+# Import theo đúng cấu trúc lớp API mới của vnstock
 from vnstock.api.quote import Quote
-from vnstock.api.financial import Financial
+from vnstock.api.financial import Finance
 from vnstock.api.market import Market
 
 def get_data_with_retry(fetch_func, max_retries=3, delay=35):
-    """Hàm bổ trợ: Tự động đợi và thử lại nếu bị dính Rate Limit"""
+    """Hàm hỗ trợ: Tự động đợi và thử lại nếu bị dính Rate Limit"""
     for attempt in range(max_retries):
         try:
             res = fetch_func()
@@ -17,21 +17,20 @@ def get_data_with_retry(fetch_func, max_retries=3, delay=35):
                 return res
         except Exception as e:
             if "Rate limit" in str(e) or "20/20" in str(e):
-                print(f"⚠️ Dính Rate Limit. Đang chờ {delay} giây để hạ nhiệt...")
+                print(f"⚠️ Dính Rate Limit. Đang chờ {delay} giây...")
                 time.sleep(delay)
             else:
                 raise e
     return None
 
 def quant_stock_screener(top_n=5):
-    print("--- BẮT ĐẦU QUÁ TRÌNH SÀNG LỌC CỔ PHIẾU QUANT (V2) ---")
+    print("--- BẮT ĐẦU QUÁ TRÌNH SÀNG LỌC CỔ PHIẾU QUANT ---")
     
-    # 1. Khởi tạo các module API mới
+    # 1. Khởi tạo module Market
     mkt = Market(source='VCI')
     
     try:
         df_companies = mkt.listing_symbols()
-        # Lọc danh sách thuộc sàn HOSE
         if 'organ_code' in df_companies.columns:
             hose_tickers = df_companies[df_companies['organ_code'] == 'HOSE']['ticker'].tolist()
         else:
@@ -40,7 +39,7 @@ def quant_stock_screener(top_n=5):
         print(f"Lỗi lấy danh sách cổ phiếu: {e}")
         hose_tickers = ['VNM', 'HPG', 'FPT', 'TCB', 'MBB', 'MWG', 'MSN', 'REE', 'VHM', 'ACB']
 
-    # Chọn 8 mã để chạy an toàn trong ngưỡng Rate Limit 20 req/phút
+    # Chọn 8 mã để chạy an toàn trong ngưỡng 20 req/phút của Guest
     sample_tickers = hose_tickers[:8] if hose_tickers else ['VNM', 'HPG', 'FPT', 'TCB', 'MBB']
     
     screening_results = []
@@ -52,12 +51,10 @@ def quant_stock_screener(top_n=5):
             print(f"Đang xử lý mã: {ticker}...")
             
             q = Quote(symbol=ticker, source='VCI')
-            f = Financial(symbol=ticker, source='VCI')
+            f = Finance(symbol=ticker, source='VCI')  # Sử dụng class Finance chính xác
             
-            # 2. Lấy BCTC (dùng Retry handler)
+            # 2. Lấy BCTC
             df_ratio = get_data_with_retry(lambda: f.ratio(period='year', lang='vi'))
-            
-            # Giảm tải cho API
             time.sleep(2) 
             
             # 3. Lấy giá lịch sử
@@ -87,8 +84,7 @@ def quant_stock_screener(top_n=5):
                 'Momentum_6M': momentum_6m
             })
             
-            # Đợi 3s giữa mỗi mã cổ phiếu để không bị vượt 20 requests/phút
-            time.sleep(3)
+            time.sleep(3) # Nghỉ giữa các lượt
             
         except Exception as e:
             print(f"Bỏ qua mã {ticker} do lỗi: {e}")
@@ -97,18 +93,18 @@ def quant_stock_screener(top_n=5):
 
     df_res = pd.DataFrame(screening_results)
     if df_res.empty:
-        print("Không có dữ liệu hợp lệ được tìm thấy.")
+        print("Không tìm thấy dữ liệu phù hợp.")
         return
 
-    # 4. Tính Quant Score (Z-Score Normalization)
+    # 4. Tính Quant Score (Z-Score)
     df_res['Z_PE'] = -1 * (df_res['PE'] - df_res['PE'].mean()) / (df_res['PE'].std() + 1e-6)
     df_res['Z_ROE'] = (df_res['ROE'] - df_res['ROE'].mean()) / (df_res['ROE'].std() + 1e-6)
     df_res['Z_Momentum'] = (df_res['Momentum_6M'] - df_res['Momentum_6M'].mean()) / (df_res['Momentum_6M'].std() + 1e-6)
 
-    # Trọng số: 30% Value, 40% Quality, 30% Momentum
+    # Trọng số: 30% PE, 40% ROE, 30% Momentum
     df_res['Quant_Score'] = (0.30 * df_res['Z_PE']) + (0.40 * df_res['Z_ROE']) + (0.30 * df_res['Z_Momentum'])
 
-    # 5. Xếp hạng & Lưu kết quả
+    # 5. Đưa ra Top cổ phiếu & Xuất CSV
     df_ranked = df_res.sort_values(by='Quant_Score', ascending=False).reset_index(drop=True)
     top_stocks = df_ranked.head(top_n)
     
@@ -116,7 +112,7 @@ def quant_stock_screener(top_n=5):
     print(top_stocks[['Ticker', 'PE', 'ROE', 'Momentum_6M', 'Quant_Score']])
     
     top_stocks.to_csv('top_stocks.csv', index=False)
-    print("\nĐã xuất kết quả ra file top_stocks.csv")
+    print("\nĐã lưu kết quả thành công vào file top_stocks.csv")
 
 if __name__ == '__main__':
     quant_stock_screener(top_n=5)
