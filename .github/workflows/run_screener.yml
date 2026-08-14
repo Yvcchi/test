@@ -31,6 +31,8 @@ jobs:
 
       # Bước 4: Chạy script Python lọc cổ phiếu
       - name: Run Quant Screener Script
+        env:
+          VNSTOCK_API_KEY: ${{ secrets.VNSTOCK_API_KEY }}
         run: |
           python main.py
 
