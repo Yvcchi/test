@@ -3,10 +3,8 @@ import numpy as np
 import time
 from datetime import datetime, timedelta
 
-# Import theo đúng cấu trúc lớp API mới của vnstock
-from vnstock.api.quote import Quote
-from vnstock.api.financial import Finance
-from vnstock.api.market import Market
+# Import trực tiếp các class chính từ gói vnstock
+from vnstock import Quote, Finance, Market
 
 def get_data_with_retry(fetch_func, max_retries=3, delay=35):
     """Hàm hỗ trợ: Tự động đợi và thử lại nếu bị dính Rate Limit"""
@@ -16,7 +14,8 @@ def get_data_with_retry(fetch_func, max_retries=3, delay=35):
             if res is not None and not res.empty:
                 return res
         except Exception as e:
-            if "Rate limit" in str(e) or "20/20" in str(e):
+            err_str = str(e)
+            if "Rate limit" in err_str or "20/20" in err_str:
                 print(f"⚠️ Dính Rate Limit. Đang chờ {delay} giây...")
                 time.sleep(delay)
             else:
@@ -27,19 +26,18 @@ def quant_stock_screener(top_n=5):
     print("--- BẮT ĐẦU QUÁ TRÌNH SÀNG LỌC CỔ PHIẾU QUANT ---")
     
     # 1. Khởi tạo module Market
-    mkt = Market(source='VCI')
-    
     try:
+        mkt = Market(source='VCI')
         df_companies = mkt.listing_symbols()
         if 'organ_code' in df_companies.columns:
             hose_tickers = df_companies[df_companies['organ_code'] == 'HOSE']['ticker'].tolist()
         else:
             hose_tickers = df_companies['ticker'].tolist()
     except Exception as e:
-        print(f"Lỗi lấy danh sách cổ phiếu: {e}")
+        print(f"Lỗi lấy danh sách cổ phiếu từ API: {e}. Sử dụng danh sách mặc định.")
         hose_tickers = ['VNM', 'HPG', 'FPT', 'TCB', 'MBB', 'MWG', 'MSN', 'REE', 'VHM', 'ACB']
 
-    # Chọn 8 mã để chạy an toàn trong ngưỡng 20 req/phút của Guest
+    # Chọn 8 mã chạy demo để không bị vượt trần 20 requests/phút của gói Guest
     sample_tickers = hose_tickers[:8] if hose_tickers else ['VNM', 'HPG', 'FPT', 'TCB', 'MBB']
     
     screening_results = []
@@ -51,7 +49,7 @@ def quant_stock_screener(top_n=5):
             print(f"Đang xử lý mã: {ticker}...")
             
             q = Quote(symbol=ticker, source='VCI')
-            f = Finance(symbol=ticker, source='VCI')  # Sử dụng class Finance chính xác
+            f = Finance(symbol=ticker, source='VCI')
             
             # 2. Lấy BCTC
             df_ratio = get_data_with_retry(lambda: f.ratio(period='year', lang='vi'))
@@ -84,7 +82,7 @@ def quant_stock_screener(top_n=5):
                 'Momentum_6M': momentum_6m
             })
             
-            time.sleep(3) # Nghỉ giữa các lượt
+            time.sleep(3) # Nghỉ giữa các mã
             
         except Exception as e:
             print(f"Bỏ qua mã {ticker} do lỗi: {e}")
@@ -104,7 +102,7 @@ def quant_stock_screener(top_n=5):
     # Trọng số: 30% PE, 40% ROE, 30% Momentum
     df_res['Quant_Score'] = (0.30 * df_res['Z_PE']) + (0.40 * df_res['Z_ROE']) + (0.30 * df_res['Z_Momentum'])
 
-    # 5. Đưa ra Top cổ phiếu & Xuất CSV
+    # 5. Xuất Top Cổ Phiếu ra CSV
     df_ranked = df_res.sort_values(by='Quant_Score', ascending=False).reset_index(drop=True)
     top_stocks = df_ranked.head(top_n)
     
