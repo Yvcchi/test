@@ -29,12 +29,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # Bước 4: Chạy script Python lọc cổ phiếu
+      # Bước 4.1: Chạy sàng lọc cổ phiếu
       - name: Run Quant Screener Script
         env:
           VNSTOCK_API_KEY: ${{ secrets.VNSTOCK_API_KEY }}
         run: |
           python main.py
+
+      # Bước 4.2: Chạy Backtest giả lập 5 năm (MỚI THÊM)
+      - name: Run Backtest Simulation
+        env:
+          VNSTOCK_API_KEY: ${{ secrets.VNSTOCK_API_KEY }}
+        run: |
+          python backtest.py
 
       # Bước 5: (Tùy chọn) Lưu file kết quả lọc (top_stocks.csv) lên GitHub
       - name: Commit & Push Results
